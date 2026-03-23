@@ -7,7 +7,7 @@
 #define W        320
 #define H        240
 #define SSID     "F3"
-#define PASS     "redacted :3"
+#define PASS     "weatherboy"
 #define NTP      "pool.ntp.org"
 #define TZ       "PST8PDT,M3.2.0,M11.1.0"
 #define DHT_PIN  22
@@ -16,7 +16,7 @@
 TFT_eSPI tft = TFT_eSPI();
 DHT dht(DHT_PIN, DHT_TYPE);
 
-char  prevTime[9] = "";
+char  prevTime[12] = "";
 char  prevAmpm[3] = "";
 float prevTemp    = NAN;
 float prevHumi    = NAN;
@@ -37,21 +37,23 @@ void updateClock() {
   if (hour12 == 0) hour12 = 12;
   const char *ampm = (t.tm_hour < 12) ? "AM" : "PM";
 
-  char buf[9];
-  snprintf(buf, sizeof(buf), "%02d:%02d:%02d", hour12, t.tm_min, t.tm_sec);
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%2d:%02d:%02d", hour12, t.tm_min, t.tm_sec);
 
   if (strcmp(buf, prevTime) != 0) {
     strcpy(prevTime, buf);
+    tft.setTextSize(2.5);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextColor(0x07FF, TFT_BLACK);
     tft.drawString(buf, W / 2, 82, 4);
+    tft.setTextSize(1);
   }
 
   if (strcmp(ampm, prevAmpm) != 0) {
     strcpy(prevAmpm, ampm);
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextColor(0x07FF, TFT_BLACK);
-    tft.drawString(ampm, W - 12, 30, 4);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawString(ampm, W / 2, 125, 4);
   }
 }
 
@@ -88,10 +90,20 @@ void setup() {
 
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.drawString("Connecting to WiFi...", W / 2, H / 2, 4);
+  tft.drawString("connecting to wifi :3", W / 2, H / 2, 4);
 
   WiFi.begin(SSID, PASS);
-  while (WiFi.status() != WL_CONNECTED) delay(500);
+  int tries = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    tft.fillScreen(TFT_BLACK);
+    drawBorder();
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawString("wifi failed :c", W / 2, H / 2 - 16, 4);
+    tft.setTextColor(0x8410, TFT_BLACK);
+    tft.drawString("check ssid & pass!", W / 2, H / 2 + 16, 2);
+    while (true) delay(1000);
+  }
 
   configTzTime(TZ, NTP);
   struct tm t;
@@ -102,8 +114,8 @@ void setup() {
 
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(0x8410, TFT_BLACK);
-  tft.drawString("TEMPERATURE", 80, 165, 2);
-  tft.drawString("HUMIDITY", 240, 165, 2);
+  tft.drawString("TEMPERATURE:", 80, 165, 2);
+  tft.drawString("HUMIDITY:", 240, 165, 2);
   tft.drawFastHLine(20, 150, W - 40, 0x4208);
 }
 
