@@ -10,7 +10,7 @@
 #define W        320
 #define H        240
 #define SSID     "F3"
-#define PASS     "Cubed-Take2" // wouldnt you like to know weatherboy
+#define PASS     "Cubed-Take3" // wouldnt you like to know weatherboy
 #define NTP      "pool.ntp.org"
 #define TZ       "PST8PDT,M3.2.0,M11.1.0"
 #define DHT_PIN  22
@@ -43,8 +43,9 @@ unsigned long pomoFlashMs = 0;
 bool pomoFlashOn = false;
 int prevRemaining = -1;
 
-char  prevTime[12] = "";
-char  prevAmpm[3] = "";
+char prevTime[12] = "";
+char prevAmpm[3] = "";
+char prevDate[20] = "";
 float prevTemp    = NAN;
 float prevHumi    = NAN;
 
@@ -52,6 +53,8 @@ unsigned long prevClockMs  = 0;
 unsigned long prevSensorMs = 0;
 unsigned long pomoBreakDurMs = 0;
 unsigned long pomoBreakStartMs = 0;
+unsigned long prevPomoDrawMs  = 0;
+unsigned long prevBreakDrawMs = 0;
 int prevBreakRemaining = -1;
 
 struct Pt { int x, y; };
@@ -83,6 +86,7 @@ void drawHomeBase() { // im stupid this is the best name i could think of so shu
   tft.drawFastHLine(20, 150, W - 40, 0x4208);
   prevTime[0] = '\0';
   prevAmpm[0] = '\0';
+  prevDate[0] = '\0';
   prevTemp = NAN;
   prevHumi = NAN;
 }
@@ -113,6 +117,19 @@ void updateClock() {
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.drawString(ampm, W / 2, 125, 4);
   }
+
+  const char* days[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+  const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+
+  char dateBuf[20];
+  snprintf(dateBuf, sizeof(dateBuf), "%s, %s %d", days[t.tm_wday], months[t.tm_mon], t.tm_mday);
+
+  if (strcmp(dateBuf, prevDate) != 0) {
+    strcpy(prevDate, dateBuf);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawString(dateBuf, W / 2, 45, 2);
+  }
 }
 
 void updateSensors() {
@@ -121,10 +138,12 @@ void updateSensors() {
 
   if (!isnan(temp) && temp != prevTemp) {
     prevTemp = temp;
+    float f = temp * 9.0f / 5.0f + 32.0f;
     char buf[10];
-    snprintf(buf, sizeof(buf), "%.1fF  ", temp * 9.0f / 5.0f + 32.0f);
+    snprintf(buf, sizeof(buf), "%.1fF  ", f);
+    uint16_t col = f < 67.0f ? TFT_CYAN : (f < 78.0f ? TFT_GREEN : TFT_RED);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.setTextColor(col, TFT_BLACK);
     tft.drawString(buf, 80, 196, 4);
   }
 
@@ -132,8 +151,9 @@ void updateSensors() {
     prevHumi = humi;
     char buf[8];
     snprintf(buf, sizeof(buf), "%.0f%%  ", humi);
+    uint16_t col = humi < 40.0f ? TFT_CYAN : (humi < 55.0f ? TFT_GREEN : TFT_RED);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.setTextColor(col, TFT_BLACK);
     tft.drawString(buf, 240, 196, 4);
   }
 }
@@ -154,7 +174,7 @@ void drawPomoSet() {
   drawBorder(TFT_RED);
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.drawString("POMODORO!!!", W / 2, 28, 4);
+  tft.drawString("POMODORO!!!", 194, 28, 4);
   tft.fillRoundRect(25,  88, 70, 64, 8, 0x2945);
   tft.drawRoundRect(25,  88, 70, 64, 8, TFT_WHITE);
   tft.setTextColor(TFT_WHITE, 0x2945);
@@ -186,8 +206,10 @@ void updatePomoRun() {
     return;
   }
   int remaining = (int)((pomoDurMs - elapsed) / 1000);
-  if (remaining == prevRemaining) return;
-  prevRemaining = remaining;
+  bool newSecond = (remaining != prevRemaining);
+  if (!newSecond && (millis() - prevPomoDrawMs < 20)) return; // redraw at least every 20ms to keep the timer looking smooth, but skip if the second didnt change to save some CPU
+  prevPomoDrawMs = millis();
+  if (newSecond) prevRemaining = remaining;
   // ethical disclaimer: AI was used for part of the code below (approx 5 lines).
   int cx = W / 2, cy = 108, r = 80, ir = 62;
   int fullDeg = (int)(360.0f * (1.0f - (float)elapsed / (float)pomoDurMs));
@@ -202,7 +224,7 @@ void updatePomoRun() {
   tft.drawString(buf, W / 2, 108, 4);
   tft.setTextSize(1);
   tft.setTextColor(0x4208, TFT_BLACK);
-  tft.drawString("tap to cancel", W / 2, 215, 2);
+  tft.drawString("tap to cancel! :3", W / 2, 215, 2);
 }
 
 void drawPomoRun() {
@@ -226,8 +248,10 @@ void updatePomoBreak() {
     return;
   }
   int remaining = (int)((pomoBreakDurMs - elapsed) / 1000);
-  if (remaining == prevBreakRemaining) return;
-  prevBreakRemaining = remaining;
+  bool newSecond = (remaining != prevBreakRemaining);
+  if (!newSecond && (millis() - prevBreakDrawMs < 20)) return; // redraw at least every 20ms to keep the timer looking smooth, but skip if the second didnt change to save some CPU
+  prevBreakDrawMs = millis();
+  if (newSecond) prevBreakRemaining = remaining;
   int cx = W / 2, cy = 108, r = 80, ir = 62;
   int fullDeg = (int)(360.0f * (1.0f - (float)elapsed / (float)pomoBreakDurMs));
   tft.drawArc(cx, cy, r, ir, 0, fullDeg, TFT_GREEN, TFT_BLACK);
