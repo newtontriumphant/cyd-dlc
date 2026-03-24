@@ -5,10 +5,12 @@
 #include <DHT.h>
 #include <XPT2046_Touchscreen.h>
 
+// apparently its good practice to indent stuff like this in c++, i just find it annoying T_T
+
 #define W        320
 #define H        240
 #define SSID     "F3"
-#define PASS     "uwu"
+#define PASS     "Cubed-Take2" // wouldnt you like to know weatherboy
 #define NTP      "pool.ntp.org"
 #define TZ       "PST8PDT,M3.2.0,M11.1.0"
 #define DHT_PIN  22
@@ -27,7 +29,7 @@ DHT dht(DHT_PIN, DHT_TYPE);
 SPIClass touchSPI(VSPI);
 XPT2046_Touchscreen ts(T_CS, T_IRQ);
 
-enum Screen { HOME, POMO_SET, POMO_RUN, POMO_DONE };
+enum Screen { HOME, POMO_SET, POMO_RUN, POMO_DONE, POMO_BREAK };
 Screen currentScreen = HOME;
 
 const int POMO_TIMES[] = { 1, 5, 10, 15, 20, 25, 30, 60 };
@@ -48,6 +50,9 @@ float prevHumi    = NAN;
 
 unsigned long prevClockMs  = 0;
 unsigned long prevSensorMs = 0;
+unsigned long pomoBreakDurMs = 0;
+unsigned long pomoBreakStartMs = 0;
+int prevBreakRemaining = -1;
 
 struct Pt { int x, y; };
 Pt getTouch() {
@@ -60,7 +65,8 @@ Pt getTouch() {
 
 bool isTouched() { return ts.tirqTouched() && ts.touched(); }
 bool hit(Pt p, int x, int y, int w, int h) { return p.x >= x && p.x <= x+w && p.y >= y && p.y <= y+h; }
-bool waitRelease() { while (isTouched()) delay(10); }
+
+void waitRelease() { while (isTouched()) delay(10); }
 
 void drawBorder(uint16_t color) {
   for (int i = 0; i < 3; i++)
@@ -162,6 +168,11 @@ void drawPomoSet() {
   tft.drawRoundRect(95, 178, 130, 44, 8, TFT_WHITE);
   tft.setTextColor(TFT_WHITE, TFT_RED);
   tft.drawString("START!!!", W / 2, 200, 4);
+  tft.fillRoundRect(8, 8, 60, 30, 6, 0x2945);
+  tft.drawRoundRect(8, 8, 60, 30, 6, TFT_WHITE);
+  tft.setTextColor(TFT_WHITE, 0x2945);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("< back!", 38, 23, 2);
 }
 
 void updatePomoRun() {
@@ -179,13 +190,13 @@ void updatePomoRun() {
   prevRemaining = remaining;
   // ethical disclaimer: AI was used for part of the code below (approx 5 lines).
   int cx = W / 2, cy = 108, r = 80, ir = 62;
-  int endDeg = (int)(360.0f * (1.0f - (float)elapsed / (float)pomoDurMs));
-  tft.drawArc(cx, cy, r, ir, 0,      endDeg, TFT_BLACK, TFT_BLACK);
-  tft.drawArc(cx, cy, r, ir, endDeg, 360,    TFT_RED,   TFT_BLACK);
+  int fullDeg = (int)(360.0f * (1.0f - (float)elapsed / (float)pomoDurMs));
+  tft.drawArc(cx, cy, r, ir, 0,       fullDeg, TFT_RED,   TFT_BLACK);
+  tft.drawArc(cx, cy, r, ir, fullDeg, 360,     TFT_BLACK, TFT_BLACK);
   int mins = remaining / 60, secs = remaining % 60;
   char buf[6];
   snprintf(buf, sizeof(buf), "%d:%02d", mins, secs);
-  tft.setTextSize(2);
+  tft.setTextSize(1.5);
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString(buf, W / 2, 108, 4);
@@ -199,6 +210,36 @@ void drawPomoRun() {
   drawBorder(TFT_RED);
   prevRemaining = -1;
   updatePomoRun();
+}
+
+void drawPomoBreak() {
+  tft.fillScreen(TFT_BLACK);
+  drawBorder(TFT_GREEN);
+  prevBreakRemaining = -1;
+}
+
+void updatePomoBreak() {
+  unsigned long elapsed = millis() - pomoBreakStartMs;
+  if (elapsed >= pomoBreakDurMs) {
+    drawHomeBase();
+    currentScreen = HOME;
+    return;
+  }
+  int remaining = (int)((pomoBreakDurMs - elapsed) / 1000);
+  if (remaining == prevBreakRemaining) return;
+  prevBreakRemaining = remaining;
+  int cx = W / 2, cy = 108, r = 80, ir = 62;
+  int fullDeg = (int)(360.0f * (1.0f - (float)elapsed / (float)pomoBreakDurMs));
+  tft.drawArc(cx, cy, r, ir, 0, fullDeg, TFT_GREEN, TFT_BLACK);
+  tft.drawArc(cx, cy, r, ir, fullDeg, 360, TFT_BLACK, TFT_BLACK);
+  int mins = remaining / 60, secs = remaining % 60;
+  char buf[6];
+  snprintf(buf, sizeof(buf), "%d:%02d", mins, secs);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.drawString(buf, W / 2, 108, 4);
+  tft.setTextColor(0x4208, TFT_BLACK);
+  tft.drawString("break time! tap to stop! :D", W / 2, 215, 2);
 }
 
 void setup() {
@@ -247,13 +288,19 @@ void loop() {
     if (now - prevSensorMs >= 3000) { prevSensorMs = now; updateSensors(); }
   }
   if (currentScreen == POMO_RUN) updatePomoRun();
+  if (currentScreen == POMO_BREAK) updatePomoBreak();
   if (currentScreen == POMO_DONE) {
     if (now - pomoFlashMs >= 500) {
       pomoFlashMs = now;
       pomoFlashOn = !pomoFlashOn;
       tft.fillScreen(pomoFlashOn ? TFT_WHITE : TFT_RED);
     }
-    if (now - pomoDoneMs >= 60000) { drawHomeBase(); currentScreen = HOME; }
+    if (now - pomoDoneMs >= 60000) { 
+      pomoBreakDurMs = pomoDurMs / 10;
+      pomoBreakStartMs = millis();
+      currentScreen = POMO_BREAK;
+      drawPomoBreak();
+     }
   }
 
   if (!isTouched()) return;
@@ -265,15 +312,24 @@ void loop() {
       currentScreen = POMO_SET;
       drawPomoSet();
       break;
-    case POMO_SET:
+    case POMO_SET: // user picks time
+      Serial.printf("touch: x=%d y=%d\n", p.x, p.y);
       if (hit(p, 25, 88, 70, 64))        { pomoIdx = (pomoIdx - 1 + POMO_COUNT) % POMO_COUNT; drawPomoSetTime(); }
       else if (hit(p, 225, 88, 70, 64))  { pomoIdx = (pomoIdx + 1) % POMO_COUNT; drawPomoSetTime(); }
       else if (hit(p, 95, 178, 130, 44)) { pomoDurMs = (unsigned long)POMO_TIMES[pomoIdx] * 60UL * 1000UL; pomoStartMs = millis(); currentScreen = POMO_RUN; drawPomoRun(); }
+      else if (hit(p, 8, 8, 60, 30))     { drawHomeBase(); currentScreen = HOME; }
       break;
-    case POMO_RUN:
+    case POMO_RUN: // draw & run pomo
+      currentScreen = POMO_SET;  
       drawPomoSet();
       break;
-    case POMO_DONE:
+    case POMO_DONE: // pomo flashes
+      pomoBreakDurMs = pomoDurMs / 10;
+      pomoBreakStartMs = millis();
+      currentScreen = POMO_BREAK;
+      drawPomoBreak();
+      break;
+    case POMO_BREAK: // start break timr after pomo
       drawHomeBase();
       currentScreen = HOME;
       break;
