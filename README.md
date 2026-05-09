@@ -1,6 +1,8 @@
 # cyd-dlc
 Hej! Digital Live Clock (DLC) is a simple program written entirely in C++ that can be run on a ESP32-2432S028, better known as the CYD (Cheap Yellow Display)!
 
+**VIEW THE DEMO HERE**: https://www.youtube.com/watch?v=fGoaKt7RYd0/
+
 It's also technically downloadable content, soooo a DLC is a DLC!
 
 The DLC has two modes: in clock mode, it tracks temperature, humidity (via a DHT22 sensor connected to GPIO), and real-time clock data synced with NTP over the ESP32's WiFi Chip.
